@@ -1,5 +1,9 @@
+from datetime import datetime
+from decimal import Decimal
 from typing import List
 from uuid import UUID
+
+from bson import Decimal128
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 import pymongo
 from store.db.mongo import db_client
@@ -16,6 +20,7 @@ class ProductUsecase:
 
     async def create(self, body: ProductIn) -> ProductOut:
         product_model = ProductModel(**body.model_dump())
+
         await self.collection.insert_one(product_model.model_dump())
 
         return ProductOut(**product_model.model_dump())
@@ -28,15 +33,20 @@ class ProductUsecase:
 
         return ProductOut(**result)
 
-    async def query(self) -> List[ProductOut]:
-        return [ProductOut(**item) async for item in self.collection.find()]
+    async def query(self, min_value, max_value) -> List[ProductOut]:
+        min_value, max_value = Decimal128(min_value), Decimal128(max_value)
+
+        return [ProductOut(**item) async for item in self.collection.find({"price": {"$gt": min_value, "$lt": max_value}})]
 
     async def update(self, id: UUID, body: ProductUpdate) -> ProductUpdateOut:
+        body.updated_at = datetime.utcnow()
         result = await self.collection.find_one_and_update(
             filter={"id": id},
             update={"$set": body.model_dump(exclude_none=True)},
             return_document=pymongo.ReturnDocument.AFTER,
         )
+        if result is None:
+            raise NotFoundException(message=f"Product not found with id: {id}")
 
         return ProductUpdateOut(**result)
 
